@@ -26,7 +26,7 @@ function App() {
       setLoading(true);
 
       const response = await axios.post(
-        "https://veriproof-ai.onrender.com/upload/",
+        "https://veriproof-ai.onrender.com/analyze",
         formData,
         {
           headers: {
@@ -35,7 +35,7 @@ function App() {
         }
       );
 
-      setResult(response.data.analysis);
+      setResult(response.data);
 
     } catch (error) {
 
@@ -181,7 +181,7 @@ function App() {
 
         <div className="feature-card">
           <h3>AI NLP</h3>
-          <p>Transformer Semantic Engine</p>
+          <p>Semantic Similarity Engine</p>
         </div>
 
         <div className="feature-card">
