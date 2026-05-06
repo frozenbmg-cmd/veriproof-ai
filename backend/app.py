@@ -1,102 +1,43 @@
-import streamlit as st
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+import shutil
 import os
-from model import train_and_save, load_model
-from auth import register, login, save_history, get_history
 
-# ---------- MODEL ----------
-if not os.path.exists("model.pkl"):
-    train_and_save()
+from extractor import extract_text
+from plagiarism import check_plagiarism
 
-model = load_model()
+app = FastAPI()
 
-st.set_page_config(page_title="AI Health System", page_icon="🩺")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# ---------- NLP ----------
-def extract(text):
-    text = text.lower()
+UPLOAD_FOLDER = "uploads"
 
-    return [
-        int("fever" in text),
-        int("cough" in text or "cold" in text or "running nose" in text),
-        int("headache" in text),
-        int("fatigue" in text or "tired" in text),
-        int("body pain" in text),
-        int("diarrhea" in text),
-        int("vomit" in text),
-        int("throat" in text),
-        int("chill" in text),
-        int("nausea" in text),
-        int("runny nose" in text),
-        int("congestion" in text),
-        int("sneeze" in text),
-        int("dizziness" in text),
-        int("abdominal" in text),
-        int("chest pain" in text),
-        int("breath" in text),
-        int("rash" in text),
-        int("itch" in text),
-        int("weight loss" in text),
-        int("appetite" in text)
-    ]
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
-# ---------- AUTH ----------
-if "user" not in st.session_state:
-    st.session_state.user = None
+@app.get("/")
+def home():
+    return {"message": "VeriProof AI Backend Running"}
 
-if st.session_state.user is None:
-    st.title("Login/Register")
+@app.post("/analyze")
+async def analyze_document(file: UploadFile = File(...)):
+    file_path = f"{UPLOAD_FOLDER}/{file.filename}"
 
-    mode = st.selectbox("Mode", ["Login","Register"])
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-    if mode == "Register":
-        if st.button("Register"):
-            if register(u,p):
-                st.success("Registered")
-            else:
-                st.error("User exists")
+    extracted_text = extract_text(file_path)
 
-    else:
-        if st.button("Login"):
-            if login(u,p):
-                st.session_state.user = u
-                st.rerun()
-            else:
-                st.error("Invalid")
+    originality_score, plagiarism_results = check_plagiarism(extracted_text)
 
-else:
-    st.sidebar.title(st.session_state.user)
-    page = st.sidebar.radio("Menu",["Chat","History"])
-
-    if page == "Chat":
-        st.title("AI Health Assistant")
-
-        user_input = st.text_input("Enter symptoms")
-
-        if st.button("Predict"):
-            f = extract(user_input)
-
-            probs = model.predict_proba([f])[0]
-            diseases = model.classes_
-
-            results = list(zip(diseases, probs))
-            results.sort(key=lambda x: x[1], reverse=True)
-
-            # remove healthy if symptoms exist
-            if sum(f) >= 2:
-                results = [r for r in results if r[0].lower() != "healthy"]
-
-            top = results[0][0]
-
-            st.success(f"Predicted: {top}")
-
-            save_history(st.session_state.user, {
-                "input": user_input,
-                "result": top
-            })
-
-    elif page == "History":
-        st.title("History")
-        for item in get_history(st.session_state.user)[::-1]:
-            st.write(f"{item['input']} → {item['result']}")
+    return {
+        "originality_score": originality_score,
+        "matches_found": len(plagiarism_results),
+        "plagiarism_details": plagiarism_results
+    }
